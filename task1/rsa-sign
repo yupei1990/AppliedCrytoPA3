@@ -1,0 +1,22 @@
+#/usr/bin/python
+import sys
+import hashlib
+
+def rsa_sign(message, rsaprivatekey):
+    hashvalue = int(hashlib.sha256(message).hexdigest(), 16)
+    return pow(hashvalue, int(rsaprivatekey[2]), int(rsaprivatekey[1]))
+
+
+if __name__ == "__main__":
+    secretkeyfile = open(sys.argv[sys.argv.index("-k") + 1])
+    secretkey = secretkeyfile.read().split()
+    inputfile = open(sys.argv[sys.argv.index("-m") + 1])
+    inputmessage = inputfile.read()
+    signaturefile = open(sys.argv[sys.argv.index("-s") + 1], "w+")
+
+    signature = rsa_sign(inputmessage, secretkey)
+    signaturefile.write(str(signature))
+    secretkeyfile.close()
+    inputfile.close()
+    signaturefile.close()
+

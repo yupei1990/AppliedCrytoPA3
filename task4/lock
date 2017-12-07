@@ -1,0 +1,184 @@
+#/usr/bin/python
+import sys
+import hashlib
+import os
+import math
+import random
+from Crypto.Cipher import AES
+
+
+def rsa_validate(message, publickey, signature):
+    expecthashvalue = int(hashlib.sha256(message).hexdigest(), 16)
+    realhashvalue = pow(signature, int(publickey[2]), int(publickey[1]))
+    print expecthashvalue == realhashvalue
+
+def rsaEncrypt(m, e, N, lenghN):
+    lengthr = int(math.ceil(lenghN/2.0)) -2
+    numberr = random.getrandbits(lengthr)
+    stringr = bin(numberr)[2:]
+    while lengthr != len(stringr):
+        numberr = random.getrandbits(lengthr)
+        stringr = bin(numberr)[2:]
+    stringm = bin(m)[2:]
+    if len(stringm) < lenghN/2:
+        zeropadding = "0" * (lenghN/2 - len(stringm))
+        stringm = zeropadding + stringm
+    paddedMessage = stringr + stringm
+    messageelement = int(paddedMessage, 2)
+    return pow(messageelement, e, N)
+
+def ECBencrypt(key, raw):
+    cipher = AES.AESCipher(key[:32], AES.MODE_ECB)
+    ciphertext = cipher.encrypt(raw)
+    return ciphertext
+
+# input two string, return the bitwise XOR of two strings
+def StrXOR(S1, S2):
+    zipped = zip(S1, S2)
+    XORSTR = ""
+    for s1, s2 in zipped:
+        XORSTR += chr(ord(s1) ^ ord(s2))
+    return XORSTR
+
+# input a file, return a list of plaintext block, already padding
+def CBCinputregulate(inputfile):
+    inputdata = open(inputfile)
+    textblock = []
+    data = inputdata.read(16)
+    flag = 0
+    while True:
+        if 0 < len(data) < 16:
+            textblock.append(data)
+            flag = 1
+
+            break
+        if len(data) == 0:
+            break
+        textblock.append(data)
+        data = inputdata.read(16)
+    if flag == 1:
+        numtopad = 16 - len(textblock[-1])
+        lastblock = textblock[-1]
+        padding = ""
+        for _ in xrange(numtopad):
+            padding += str("0"+hex(numtopad)[-1])
+        lastblock += padding.decode("hex")
+        textblock[-1] = lastblock
+        return textblock
+    else:
+        lastblock = "10101010101010101010101010101010".decode("hex")
+        textblock.append(lastblock)
+        return textblock
+
+# CBC encryption, input the list of plaintext block, key, and the initialize vector, return the cipher text string
+def CBCencrypt(key, plaintext, IV):
+    initializevector = IV
+    ciphertext = IV
+    if len(key) > 32:
+        print "key was longer than 256 bits, only the first 256 bits were used."
+    for plaintextblock in plaintext:
+        cipherblock = ECBencrypt(key[:32], StrXOR(plaintextblock, initializevector))
+        ciphertext += cipherblock
+        initializevector = cipherblock
+    return ciphertext
+
+def randomIVgenerator():
+    return os.urandom(16)
+
+def sysmmetrickeygeneration():
+    return os.urandom(32)
+
+def CBCtaginputregulate(messagedata, length):
+    textblock = [length]
+
+    data = messagedata.read(16)
+    flag = 0
+    while True:
+        if 0 < len(data) < 16:
+            textblock.append(data)
+            flag = 1
+            break
+        if len(data) == 0:
+            break
+        textblock.append(data)
+        data = messagedata.read(16)
+    if flag == 1:
+        numtopad = 16 - len(textblock[-1])
+        lastblock = textblock[-1]
+        padding = ""
+        for _ in xrange(numtopad):
+            padding += str("0" + hex(numtopad)[-1])
+        lastblock += padding.decode("hex")
+        textblock[-1] = lastblock
+        return textblock
+    return textblock
+
+def getmessagelength(messagefile):
+    messagedata = messagefile.read()
+    length = hex(len(messagedata))[2:]
+    while len(length) < 32:
+        length = "0" + length
+    length = length.decode("hex")
+    return length
+
+def cbcmac_tag(messageblocklist, key):
+    initialvector = ("00"*16).decode("hex")
+    for block in messageblocklist:
+        initialvector = ECBencrypt(key[:32], StrXOR(block, initialvector))
+    tag = initialvector
+    return tag
+
+#-------------------------------------------------------#
+
+def encryptdirectory(directory, key):
+    filelist = os.listdir(directory)
+    filelist = [item for item in filelist if not item.startswith(".")]
+    for item in filelist:
+        itemdata = directory+"/"+item
+        itemdatacipher = CBCencrypt(key, CBCinputregulate(itemdata), randomIVgenerator())
+        cipher = open(itemdata+"-cipher", "w")
+        cipher.write(itemdatacipher)
+        cipher.close()
+        os.remove(itemdata)
+
+def sysmmetrickeytagging(directory, key):
+    filelist = os.listdir(directory)
+    filelist = [item for item in filelist if not item.startswith(".")]
+    for item in filelist:
+        itemdata = open(directory + "/" + item)
+        tag = cbcmac_tag(CBCtaginputregulate(itemdata, getmessagelength(itemdata)), key)
+        tagfile = open(directory + "/" + item + "-tag", "wb+")
+        tagfile.write(tag.encode("hex"))
+
+def sysmmtrickeymanifest(keytoencrypt, publickeylist):
+    syskeyfile = open("sysmmetric-key-manifest", "w")
+    keycipher = rsaEncrypt(keytoencrypt, int(publickeylist[2]), int(publickeylist[1]), int(publickeylist[0]))
+    syskeyfile.write(str(keycipher))
+    syskeyfile.close()
+
+def sysmmetrickey_rsa_sign(message, rsaprivatekey):
+    hashvalue = int(hashlib.sha256(message).hexdigest(), 16)
+    signature = pow(hashvalue, int(rsaprivatekey[2]), int(rsaprivatekey[1]))
+    sysmmetric_key_signature = open("sysmmetric-key-manifest-signature", "w+")
+    sysmmetric_key_signature.write(str(signature))
+
+if __name__ == "__main__":
+    directory = sys.argv[sys.argv.index("-d") + 1]
+    actionpublickey = sys.argv[sys.argv.index("-p") + 1]
+    actionprivatekey = sys.argv[sys.argv.index("-r") + 1]
+    validatepublic = sys.argv[sys.argv.index("-vk") + 1]
+
+    unlockerpublickey = open(actionpublickey).read()
+    unlockercertificate = open(actionpublickey+"-casig").read().strip()
+    capublickey = open(validatepublic).read().split()
+
+    rsa_validate(unlockerpublickey, capublickey, int(unlockercertificate))
+
+    sysmmetrickey = sysmmetrickeygeneration()
+
+    sysmmtrickeymanifest(int(sysmmetrickey.encode("hex"),16), unlockerpublickey.split())
+    sysmmetrickey_rsa_sign(open("sysmmetric-key-manifest").read(), open(actionprivatekey).read().split())
+
+    encryptdirectory(directory, sysmmetrickey)
+    sysmmetrickeytagging(directory, sysmmetrickey)
+

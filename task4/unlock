@@ -1,0 +1,182 @@
+#/usr/bin/python
+import hashlib
+import sys
+import math
+import os
+from Crypto.Cipher import AES
+
+
+def rsaDecrypt(c, d, N, lenghN):
+    lengthr = int(math.ceil(lenghN / 2.0)) - 2
+    paddedmessage = pow(c, d, N)
+    messagestring = bin(paddedmessage)[2:][lengthr:]
+    return int(messagestring, 2)
+
+def ECBencrypt(key, raw):
+    cipher = AES.AESCipher(key[:32], AES.MODE_ECB)
+    ciphertext = cipher.encrypt(raw)
+    return ciphertext
+
+def ECBdecrypt(key, enc):
+    cipher = AES.AESCipher(key[:32], AES.MODE_ECB)
+    enc = cipher.decrypt(enc)
+    return enc
+
+# input two string, return the bitwise XOR of two strings
+def StrXOR(S1, S2):
+    zipped = zip(S1, S2)
+    XORSTR = ""
+    for s1, s2 in zipped:
+        XORSTR += chr(ord(s1) ^ ord(s2))
+    return XORSTR
+
+# input a file, return a list of plaintext block, already padding and prepend
+def CBCtaginputregulate(messagedata, length):
+    textblock = [length]
+    data = messagedata.read(16)
+    flag = 0
+    while True:
+        if 0 < len(data) < 16:
+            textblock.append(data)
+            flag = 1
+            break
+        if len(data) == 0:
+            break
+        textblock.append(data)
+        data = messagedata.read(16)
+    if flag == 1:
+        numtopad = 16 - len(textblock[-1])
+        lastblock = textblock[-1]
+        padding = ""
+        for _ in xrange(numtopad):
+            padding += str("0" + hex(numtopad)[-1])
+        lastblock += padding.decode("hex")
+        textblock[-1] = lastblock
+        return textblock
+    return textblock
+
+def getmessagelength(messagefile):
+    messagedata = messagefile.read()
+    length = hex(len(messagedata))[2:]
+    while len(length) < 32:
+        length = "0" + length
+    length = length.decode("hex")
+    return length
+
+def cbcmac_validate(messageblocklist, key, realtag ):
+    initialvector = ("00"*16).decode("hex")
+    for block in messageblocklist:
+        initialvector = ECBencrypt(key[:32], StrXOR(block, initialvector))
+    expecttage = initialvector
+    print realtag == expecttage.encode("hex")
+
+
+# input the ciphertext in string format, return a list of plaintext block without removing padding
+def CBCdecryption(key, ciphertext):
+    if len(key) > 32:
+        key = key[:32]
+        print "key was longer than 256 bits, only the first 256 bits were used."
+    ciphertextlength = len(ciphertext)
+    # print ciphertextlength
+    if ciphertextlength % 16 != 0:
+        return "ERROR"
+    plaintext= []
+    blockflag = 16
+    IV = ciphertext[:blockflag]
+
+    while blockflag < ciphertextlength:
+        cipherblock = ciphertext[blockflag:(blockflag+16)]
+        # print cipherblock
+        aesplaintextblock = ECBdecrypt(key, cipherblock)
+        plaintextblock = StrXOR(IV, aesplaintextblock)
+        plaintext.append(plaintextblock)
+        IV = cipherblock
+        blockflag += 16
+    # print plaintext
+    return plaintext
+
+def CBCoutputregulation(listofplaintextblock):
+    plaintext = ""
+    # print listofplaintextblock[-1]
+    if listofplaintextblock[-1] == "10101010101010101010101010101010".decode("hex"):
+        # print "haha"
+        for block in listofplaintextblock[:-1]:
+            plaintext += block
+        return plaintext
+    else:
+        numberofpadding = int(listofplaintextblock[-1][-1].encode("hex"), 16)
+        lastblock = listofplaintextblock[-1][:16-numberofpadding]
+        for block in listofplaintextblock[:-1]:
+            plaintext += block
+        return plaintext + lastblock
+
+
+#--------------------------------------------------------------------------------#
+
+def rsa_validate(message, publickey, signature):
+    expecthashvalue = int(hashlib.sha256(message).hexdigest(), 16)
+    realhashvalue = pow(signature, int(publickey[2]), int(publickey[1]))
+    print expecthashvalue == realhashvalue
+
+def sysmmetric_key_manifest_validate(publickey):
+    message = open("sysmmetric-key-manifest").read()
+    signature = int(open("sysmmetric-key-manifest-signature").read())
+    rsa_validate(message, publickey, signature)
+
+def sysmetrickeyrecover(cipher, privatekey):
+    key = rsaDecrypt(cipher, int(privatekey[2]), int(privatekey[1]), int(privatekey[0]))
+    keyhex = hex(key)[2:]
+    if keyhex[-1] == "L":
+        keyhex = keyhex[:-1]
+
+    if len(keyhex) % 2 == 1:
+        keyhex = "0" + keyhex
+
+    return keyhex.decode("hex")
+
+def directory_files_validate(directory, key):
+    filelist = os.listdir(directory)
+    filelist = [item for item in filelist if not item.startswith(".")]
+    taglist = [item for item in filelist if item[-4:] == "-tag"]
+
+    for tag in taglist:
+        if tag[:-4] not in filelist:
+            print "WRONG!"
+            break
+
+        tagdata = open(directory + "/" + tag).read()
+        tagfile = open(directory + "/" + tag[:-4])
+        print tag[:-4]
+        cbcmac_validate(CBCtaginputregulate(tagfile, getmessagelength(tagfile)), key, tagdata)
+
+def directory_files_decryption(directory, key):
+    filelist = os.listdir(directory)
+    filelist = [item for item in filelist if not item.startswith(".")]
+    taglist = [item for item in filelist if item[-4:] == "-tag"]
+    filelist = [item[:-4] for item in taglist]
+    for item in taglist:
+        os.remove(directory+"/"+item)
+    for item in filelist:
+        #print directory+"/"+item[:-7]
+        plaintextfile = open(directory+"/"+item[:-7], "w")
+        plaintext = CBCoutputregulation(CBCdecryption(key, open((directory+"/"+item)).read()))
+        plaintextfile.write(plaintext)
+        plaintextfile.close()
+        os.remove(directory+"/"+item)
+
+
+if __name__ == "__main__":
+    directory = sys.argv[sys.argv.index("-d") + 1]
+    actionpublickey = sys.argv[sys.argv.index("-p") + 1]
+    actionprivatekey = sys.argv[sys.argv.index("-r") + 1]
+    validatepublic = sys.argv[sys.argv.index("-vk") + 1]
+
+    unlockerpublickey = open(actionpublickey).read()
+    unlockercertificate = open(actionpublickey+"-casig").read().strip()
+    capublickey = open(validatepublic).read().split()
+
+    rsa_validate(unlockerpublickey, capublickey, int(unlockercertificate))
+    sysmmetric_key_manifest_validate(open(actionpublickey).read().split())
+    syskey = sysmetrickeyrecover(int(open("sysmmetric-key-manifest").read()), open(actionprivatekey).read().split())
+    directory_files_validate(directory, syskey)
+    directory_files_decryption(directory, syskey)

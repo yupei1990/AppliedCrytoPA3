@@ -1,0 +1,72 @@
+#/usr/bin/python
+import sys
+from Crypto.Cipher import AES
+
+def ECBencrypt(key, raw):
+    cipher = AES.AESCipher(key[:32], AES.MODE_ECB)
+    ciphertext = cipher.encrypt(raw)
+    return ciphertext
+
+# input two string, return the bitwise XOR of two strings
+def StrXOR(S1, S2):
+    zipped = zip(S1, S2)
+    XORSTR = ""
+    for s1, s2 in zipped:
+        XORSTR += chr(ord(s1) ^ ord(s2))
+    return XORSTR
+
+# input a file, return a list of plaintext block, already padding and prepend
+def CBCinputregulate(messagedata, length):
+    textblock = [length]
+
+    data = messagedata.read(16)
+    flag = 0
+    while True:
+        if 0 < len(data) < 16:
+            textblock.append(data)
+            flag = 1
+            break
+        if len(data) == 0:
+            break
+        textblock.append(data)
+        data = messagedata.read(16)
+    if flag == 1:
+        numtopad = 16 - len(textblock[-1])
+        lastblock = textblock[-1]
+        padding = ""
+        for _ in xrange(numtopad):
+            padding += str("0" + hex(numtopad)[-1])
+        lastblock += padding.decode("hex")
+        textblock[-1] = lastblock
+        return textblock
+    return textblock
+
+def getmessagelength(messagefile):
+    messagedata = messagefile.read()
+    length = hex(len(messagedata))[2:]
+    while len(length) < 32:
+        length = "0" + length
+    length = length.decode("hex")
+    return length
+
+
+def cbcmac_tag(messageblocklist, key):
+    initialvector = ("00"*16).decode("hex")
+    for block in messageblocklist:
+        initialvector = ECBencrypt(key[:32], StrXOR(block, initialvector))
+    tag = initialvector
+    return tag
+
+
+if __name__ == "__main__":
+    keyfile = sys.argv[ sys.argv.index("-k") + 1]
+    messagefile = sys.argv[ sys.argv.index("-m") + 1]
+    tagfile  = sys.argv[ sys.argv.index("-t") + 1]
+
+    message = open(messagefile)
+    key = open(keyfile).read().strip().decode("hex")[:32]
+
+    tag = cbcmac_tag( CBCinputregulate(message, getmessagelength(message)), key)
+
+    tagfile = open(tagfile, "wb+")
+    tagfile.write(tag.encode("hex"))

@@ -1,0 +1,23 @@
+#/usr/bin/python
+import sys
+import hashlib
+
+def rsa_validate(message, publickey, signature):
+    expecthashvalue = int(hashlib.sha256(message).hexdigest(), 16)
+    realhashvalue = pow(signature, int(publickey[2]), int(publickey[1]))
+    print expecthashvalue == realhashvalue
+
+
+if __name__ == "__main__":
+    publickeyfile = open(sys.argv[sys.argv.index("-k") + 1])
+    publickey = publickeyfile.read().split()
+    inputfile = open(sys.argv[sys.argv.index("-m") + 1])
+    inputmessage = inputfile.read()
+    signaturefile = open(sys.argv[sys.argv.index("-s") + 1])
+    signature = int(signaturefile.read().strip())
+
+    rsa_validate(inputmessage, publickey, signature)
+
+    publickeyfile.close()
+    inputfile.close()
+    signaturefile.close()
