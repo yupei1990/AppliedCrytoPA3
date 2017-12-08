@@ -1,4 +1,4 @@
-#/usr/bin/python
+#!/usr/bin/python2
 import sys
 import hashlib
 import os
@@ -10,7 +10,8 @@ from Crypto.Cipher import AES
 def rsa_validate(message, publickey, signature):
     expecthashvalue = int(hashlib.sha256(message).hexdigest(), 16)
     realhashvalue = pow(signature, int(publickey[2]), int(publickey[1]))
-    print expecthashvalue == realhashvalue
+    return expecthashvalue == realhashvalue
+
 
 def rsaEncrypt(m, e, N, lenghN):
     lengthr = int(math.ceil(lenghN/2.0)) -2
@@ -151,7 +152,7 @@ def sysmmetrickeytagging(directory, key):
         tagfile.write(tag.encode("hex"))
 
 def sysmmtrickeymanifest(keytoencrypt, publickeylist):
-    syskeyfile = open("sysmmetric-key-manifest", "w")
+    syskeyfile = open("symmetric-key-manifest", "w")
     keycipher = rsaEncrypt(keytoencrypt, int(publickeylist[2]), int(publickeylist[1]), int(publickeylist[0]))
     syskeyfile.write(str(keycipher))
     syskeyfile.close()
@@ -159,7 +160,7 @@ def sysmmtrickeymanifest(keytoencrypt, publickeylist):
 def sysmmetrickey_rsa_sign(message, rsaprivatekey):
     hashvalue = int(hashlib.sha256(message).hexdigest(), 16)
     signature = pow(hashvalue, int(rsaprivatekey[2]), int(rsaprivatekey[1]))
-    sysmmetric_key_signature = open("sysmmetric-key-manifest-signature", "w+")
+    sysmmetric_key_signature = open("symmetric-key-manifest-signature", "w+")
     sysmmetric_key_signature.write(str(signature))
 
 if __name__ == "__main__":
@@ -172,12 +173,15 @@ if __name__ == "__main__":
     unlockercertificate = open(actionpublickey+"-casig").read().strip()
     capublickey = open(validatepublic).read().split()
 
-    rsa_validate(unlockerpublickey, capublickey, int(unlockercertificate))
+    integrity = rsa_validate(unlockerpublickey, capublickey, int(unlockercertificate))
+    print "Integrity result is " + str(integrity)
+    if not integrity:
+        exit(-1)
 
     sysmmetrickey = sysmmetrickeygeneration()
 
     sysmmtrickeymanifest(int(sysmmetrickey.encode("hex"),16), unlockerpublickey.split())
-    sysmmetrickey_rsa_sign(open("sysmmetric-key-manifest").read(), open(actionprivatekey).read().split())
+    sysmmetrickey_rsa_sign(open("symmetric-key-manifest").read(), open(actionprivatekey).read().split())
 
     encryptdirectory(directory, sysmmetrickey)
     sysmmetrickeytagging(directory, sysmmetrickey)

@@ -1,4 +1,5 @@
-#/usr/bin/python
+#!/usr/bin/python2
+
 import sys
 from Crypto.Util import number
 import random

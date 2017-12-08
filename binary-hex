@@ -1,0 +1,22 @@
+#!/usr/bin/python
+import sys
+
+def binary2hexstring(binary):
+    return binary.encode("hex")
+
+def hexstring2binary(hexstring):
+    return hexstring.decode("hex")
+
+if __name__ == "__main__":
+    file = open(sys.argv[2])
+    if sys.argv[1] == "-h":
+        filename = sys.argv[2] + "-hexstring"
+        outputfile = binary2hexstring(file.read())
+    if sys.argv[1] == "-b":
+        filename = sys.argv[2] + "-binary"
+        outputfile = hexstring2binary(file.read())
+    if sys.argv[1] not in ["-h", "-b"]:
+        print "INPUT ERROR"
+    output = open(filename, "w+")
+    output.write(outputfile)
+    output.close()

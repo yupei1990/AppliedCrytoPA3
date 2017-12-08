@@ -1,4 +1,4 @@
-#/usr/bin/python
+#!/usr/bin/python2
 import hashlib
 import sys
 import math
@@ -68,7 +68,7 @@ def cbcmac_validate(messageblocklist, key, realtag ):
     for block in messageblocklist:
         initialvector = ECBencrypt(key[:32], StrXOR(block, initialvector))
     expecttage = initialvector
-    print realtag == expecttage.encode("hex")
+    return realtag == expecttage.encode("hex")
 
 
 # input the ciphertext in string format, return a list of plaintext block without removing padding
@@ -116,12 +116,12 @@ def CBCoutputregulation(listofplaintextblock):
 def rsa_validate(message, publickey, signature):
     expecthashvalue = int(hashlib.sha256(message).hexdigest(), 16)
     realhashvalue = pow(signature, int(publickey[2]), int(publickey[1]))
-    print expecthashvalue == realhashvalue
+    return expecthashvalue == realhashvalue
 
 def sysmmetric_key_manifest_validate(publickey):
-    message = open("sysmmetric-key-manifest").read()
-    signature = int(open("sysmmetric-key-manifest-signature").read())
-    rsa_validate(message, publickey, signature)
+    message = open("symmetric-key-manifest").read()
+    signature = int(open("symmetric-key-manifest-signature").read())
+    return rsa_validate(message, publickey, signature)
 
 def sysmetrickeyrecover(cipher, privatekey):
     key = rsaDecrypt(cipher, int(privatekey[2]), int(privatekey[1]), int(privatekey[0]))
@@ -142,12 +142,15 @@ def directory_files_validate(directory, key):
     for tag in taglist:
         if tag[:-4] not in filelist:
             print "WRONG!"
-            break
+            exit(-1)
 
         tagdata = open(directory + "/" + tag).read()
         tagfile = open(directory + "/" + tag[:-4])
         print tag[:-4]
-        cbcmac_validate(CBCtaginputregulate(tagfile, getmessagelength(tagfile)), key, tagdata)
+        fileintegrity = cbcmac_validate(CBCtaginputregulate(tagfile, getmessagelength(tagfile)), key, tagdata)
+        print "file integrity is " + str(fileintegrity)
+        if not fileintegrity:
+            exit(-1)
 
 def directory_files_decryption(directory, key):
     filelist = os.listdir(directory)
@@ -175,8 +178,15 @@ if __name__ == "__main__":
     unlockercertificate = open(actionpublickey+"-casig").read().strip()
     capublickey = open(validatepublic).read().split()
 
-    rsa_validate(unlockerpublickey, capublickey, int(unlockercertificate))
-    sysmmetric_key_manifest_validate(open(actionpublickey).read().split())
-    syskey = sysmetrickeyrecover(int(open("sysmmetric-key-manifest").read()), open(actionprivatekey).read().split())
+    publickeyintegrity = rsa_validate(unlockerpublickey, capublickey, int(unlockercertificate))
+    print "the locker public key integrity is " + str(publickeyintegrity)
+    if not publickeyintegrity:
+        exit(-1)
+    sysmmstric_key_integrity = sysmmetric_key_manifest_validate(open(actionpublickey).read().split())
+    print "the symmetric key integrity is " + str(sysmmstric_key_integrity)
+    if not sysmmstric_key_integrity:
+        exit(-1)
+    syskey = sysmetrickeyrecover(int(open("symmetric-key-manifest").read()), open(actionprivatekey).read().split())
     directory_files_validate(directory, syskey)
+
     directory_files_decryption(directory, syskey)
